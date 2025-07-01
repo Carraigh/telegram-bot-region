@@ -1,9 +1,12 @@
-import logging
 import os
+import logging
 from dotenv import load_dotenv
+
+from flask import Flask, request
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+
 from regions import REGIONS
 
 # Настройка логирования
@@ -43,7 +46,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f'Код {user_input} — это {region_name}')
         return
 
-    # Поиск по названию (исправлено: перебираем code, name)
+    # Поиск по названию
     matches = []
     for code, name in REGIONS.items():
         if user_input in normalize(name):
@@ -59,15 +62,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result += "\n... и другие"
         await update.message.reply_text(result)
 
-def main():
-    print("Бот готов к запуску.")
-    application = ApplicationBuilder().token(TOKEN).build()
+# Создаем приложение
+application = ApplicationBuilder().token(TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+# Добавляем обработчики
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Запуск бота...")
-    application.run_polling()
+# Flask-приложение
+app = Flask(__name__)
+
+@app.route('/', methods=['POST'])
+async def webhook():
+    """Telegram будет отправлять апдейты сюда"""
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update_async(update)
+    return 'OK'
+
+@app.route('/', methods=['GET'])
+def index():
+    return "Бот работает!"
 
 if __name__ == '__main__':
-    main()
+    port = int(os.environ.get("PORT", 8443))
+    app.run(host='0.0.0.0', port=port)
