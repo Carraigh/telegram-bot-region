@@ -1,25 +1,24 @@
 import os
 import logging
-
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
-
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-
 from regions import REGIONS  # Ваш словарь регионов
 
-# Логирование
+# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-# Загрузка токена
+# Загрузка переменных окружения
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN не найден!")
+    logger.error("TELEGRAM_BOT_TOKEN не найден в .env файле!")
+    raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
 
 # Нормализация текста
 def normalize(text: str) -> str:
@@ -28,11 +27,10 @@ def normalize(text: str) -> str:
 # Создаем приложение Telegram
 application = ApplicationBuilder().token(TOKEN).build()
 
-# /start
+# Обработчики команд
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Введите часть названия региона или код для поиска.")
 
-# Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = normalize(update.message.text)
 
@@ -55,24 +53,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply += "\n... и другие"
         await update.message.reply_text(reply)
 
+# Регистрация обработчиков
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Flask
+# Создаем Flask приложение
 app = Flask(__name__)
 
 @app.route('/', methods=['POST'])
-async def webhook():
+def webhook():  # Синхронная функция (без async)
     if request.headers.get('content-type') == 'application/json':
-        json_data = request.get_json(force=True)
-        update = Update.de_json(json_data, application.bot)
-        await application.process_update(update)
-        return jsonify({'status': 'ok'})
+        try:
+            json_data = request.get_json(force=True)
+            update = Update.de_json(json_data, application.bot)
+            
+            # Ключевое исправление: используем очередь вместо await
+            application.update_queue.put(update)
+            
+            return jsonify({'status': 'ok'})
+        except Exception as e:
+            logger.error(f"Ошибка обработки обновления: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
     else:
         return 'Invalid content type', 403
 
 @app.route('/', methods=['GET'])
 def index():
-    return "Бот работает!"
+    return "Telegram Bot is running!"
 
-# Запуск через hypercorn, не через app.run()
+# Для запуска через Hypercorn/Gunicorn
+if __name__ == '__main__':
+    # В production используйте: hypercorn bot:app --bind 0.0.0.0:$PORT
+    app.run(host='0.0.0.0', port=8000, debug=True)
