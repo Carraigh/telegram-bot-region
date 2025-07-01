@@ -1,7 +1,8 @@
 import os
 import logging
-from dotenv import load_dotenv
+import asyncio
 
+from dotenv import load_dotenv
 from flask import Flask, request
 
 from telegram import Update
@@ -73,11 +74,15 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_m
 app = Flask(__name__)
 
 @app.route('/', methods=['POST'])
-async def webhook():
+def webhook():
     """Telegram будет отправлять апдейты сюда"""
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    await application.process_update_async(update)
-    return 'OK'
+    if request.headers.get('content-type') == 'application/json':
+        json_data = request.get_json(force=True)
+        update = Update.de_json(json_data, application.bot)
+        asyncio.run(application.process_update_async(update))
+        return 'OK', 200
+    else:
+        return 'Invalid content type', 403
 
 @app.route('/', methods=['GET'])
 def index():
