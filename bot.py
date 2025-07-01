@@ -64,7 +64,7 @@ app = Flask(__name__)
 @app.route('/', methods=['POST'])
 async def webhook():
     if request.headers.get('content-type') == 'application/json':
-        json_data = await request.get_json(force=True)
+        json_data = request.get_json(force=True)
         update = Update.de_json(json_data, application.bot)
         await application.process_update(update)
         return jsonify({'status': 'ok'})
