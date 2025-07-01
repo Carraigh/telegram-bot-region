@@ -2,42 +2,33 @@ import os
 import logging
 
 from dotenv import load_dotenv
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-from regions import REGIONS
+from regions import REGIONS  # Ваш словарь регионов
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# Загрузка токена из .env или окружения
+# Загрузка токена
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
 if not TOKEN:
-    raise ValueError("Не найден TELEGRAM_BOT_TOKEN в переменных окружения!")
+    raise ValueError("TELEGRAM_BOT_TOKEN не найден!")
 
-# Функция нормализации текста
+# Нормализация текста
 def normalize(text: str) -> str:
     return text.lower().strip()
 
-# Обратный словарь: {region_name: code}
-REVERSE_REGIONS = {}
-for code, name in REGIONS.items():
-    REVERSE_REGIONS[normalize(name)] = code
-    short_name = name.split(',')[0].split(' ')[0].lower()
-    if short_name != name.lower():
-        REVERSE_REGIONS[normalize(short_name)] = code
-
-# Создаем приложение
+# Создаем приложение Telegram
 application = ApplicationBuilder().token(TOKEN).build()
 
-# Команда /start
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Введите часть названия региона или код для поиска.")
 
@@ -45,43 +36,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = normalize(update.message.text)
 
-    # Проверяем, есть ли такой код
     if user_input in REGIONS:
-        region_name = REGIONS[user_input]
-        await update.message.reply_text(f'Код {user_input} — это {region_name}')
+        await update.message.reply_text(f"Код {user_input} — это {REGIONS[user_input]}")
         return
 
-    # Поиск по названию
     matches = []
     for code, name in REGIONS.items():
         if user_input in normalize(name):
-            matches.append(f'{name} ({code})')
+            matches.append(f"{name} ({code})")
 
     if not matches:
-        await update.message.reply_text('Совпадений не найдено.')
+        await update.message.reply_text("Совпадений не найдено.")
     elif len(matches) == 1:
         await update.message.reply_text(matches[0])
     else:
-        result = '\n'.join(matches[:5])
+        reply = "\n".join(matches[:5])
         if len(matches) > 5:
-            result += "\n... и другие"
-        await update.message.reply_text(result)
+            reply += "\n... и другие"
+        await update.message.reply_text(reply)
 
-# Добавляем обработчики
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Flask-приложение
+# Flask
 app = Flask(__name__)
 
 @app.route('/', methods=['POST'])
-def webhook():
-    """Telegram будет отправлять апдейты сюда"""
+async def webhook():
     if request.headers.get('content-type') == 'application/json':
-        json_data = request.get_json(force=True)
+        json_data = await request.get_json(force=True)
         update = Update.de_json(json_data, application.bot)
-        application.process_update(update)
-        return 'OK', 200
+        await application.process_update(update)
+        return jsonify({'status': 'ok'})
     else:
         return 'Invalid content type', 403
 
@@ -89,6 +75,4 @@ def webhook():
 def index():
     return "Бот работает!"
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8443))  # Используем PORT от Render
-    app.run(host='0.0.0.0', port=port)
+# Запуск через hypercorn, не через app.run()
