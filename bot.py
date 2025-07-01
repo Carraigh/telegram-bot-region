@@ -1,6 +1,5 @@
 import os
 import logging
-import asyncio
 
 from dotenv import load_dotenv
 from flask import Flask, request
@@ -79,7 +78,7 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_data = request.get_json(force=True)
         update = Update.de_json(json_data, application.bot)
-        asyncio.run(application.process_update_async(update))
+        application.process_update(update)  # <-- Синхронный метод
         return 'OK', 200
     else:
         return 'Invalid content type', 403
