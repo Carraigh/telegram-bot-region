@@ -1,4 +1,7 @@
 import logging
+import os
+from dotenv import load_dotenv
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from regions import REGIONS
@@ -9,19 +12,30 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# Загрузка токена из .env или окружения
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+if not TOKEN:
+    raise ValueError("Не найден TELEGRAM_BOT_TOKEN в переменных окружения!")
+
+# Функция нормализации текста
+def normalize(text: str) -> str:
+    return text.lower().strip()
+
 # Обратный словарь: {region_name: code}
 REVERSE_REGIONS = {}
 for code, name in REGIONS.items():
-    REVERSE_REGIONS[name.lower()] = code
+    REVERSE_REGIONS[normalize(name)] = code
     short_name = name.split(',')[0].split(' ')[0].lower()
     if short_name != name.lower():
-        REVERSE_REGIONS[short_name] = code
+        REVERSE_REGIONS[normalize(short_name)] = code
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Введите часть названия региона или код для поиска.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text.strip().lower()
+    user_input = normalize(update.message.text)
 
     # Проверяем, есть ли такой код
     if user_input in REGIONS:
@@ -32,7 +46,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Поиск по названию
     matches = []
     for name, code in REGIONS.items():
-        if user_input in name.lower():
+        if user_input in normalize(name):
             matches.append(f'{name} ({code})')
 
     if not matches:
@@ -47,8 +61,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     print("Бот готов к запуску.")
-    print("Вставьте свой токен в строке ниже, как только будет доступ к BotFather.")
-    application = ApplicationBuilder().token("5740438152:AAG9mqmQfFVC7VPAmyPO1qxyRNZd6FAT50Q").build()
+    application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
