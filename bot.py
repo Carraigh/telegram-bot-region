@@ -1,10 +1,11 @@
 import os
 import logging
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
+from quart import Quart, request, jsonify
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from regions import REGIONS  # Ваш словарь регионов
+import asyncio
 
 # Настройка логирования
 logging.basicConfig(
@@ -57,19 +58,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Создаем Flask приложение
-app = Flask(__name__)
+# Создаем Quart приложение
+app = Quart(__name__)
+
+# Инициализация приложения Telegram перед запуском сервера
+@app.before_serving
+async def startup():
+    logger.info("Инициализация Telegram Application...")
+    await application.initialize()
+    logger.info("Telegram Application инициализировано.")
 
 @app.route('/', methods=['POST'])
-def webhook():  # Синхронная функция (без async)
+async def webhook():
     if request.headers.get('content-type') == 'application/json':
         try:
-            json_data = request.get_json(force=True)
+            json_data = await request.get_json()
             update = Update.de_json(json_data, application.bot)
-            
-            # Ключевое исправление: используем очередь вместо await
-            application.update_queue.put(update)
-            
+            await application.update_queue.put(update)
             return jsonify({'status': 'ok'})
         except Exception as e:
             logger.error(f"Ошибка обработки обновления: {e}")
@@ -78,10 +83,16 @@ def webhook():  # Синхронная функция (без async)
         return 'Invalid content type', 403
 
 @app.route('/', methods=['GET'])
-def index():
+async def index():
     return "Telegram Bot is running!"
 
-# Для запуска через Hypercorn/Gunicorn
+# Запуск через Hypercorn
 if __name__ == '__main__':
-    # В production используйте: hypercorn bot:app --bind 0.0.0.0:$PORT
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    import hypercorn.asyncio
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = ["0.0.0.0:8000"]
+
+    logger.info("Запуск сервера Hypercorn...")
+    asyncio.run(hypercorn.asyncio.serve(app, config))
