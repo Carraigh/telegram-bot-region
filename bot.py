@@ -34,9 +34,14 @@ for code, name in REGIONS.items():
     if short_name != name.lower():
         REVERSE_REGIONS[normalize(short_name)] = code
 
+# Создаем приложение
+application = ApplicationBuilder().token(TOKEN).build()
+
+# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Введите часть названия региона или код для поиска.")
 
+# Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = normalize(update.message.text)
 
@@ -62,9 +67,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result += "\n... и другие"
         await update.message.reply_text(result)
 
-# Создаем приложение
-application = ApplicationBuilder().token(TOKEN).build()
-
 # Добавляем обработчики
 application.add_handler(CommandHandler("start", start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -78,7 +80,7 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_data = request.get_json(force=True)
         update = Update.de_json(json_data, application.bot)
-        application.process_update(update)  # <-- Синхронный метод
+        application.process_update(update)
         return 'OK', 200
     else:
         return 'Invalid content type', 403
@@ -88,5 +90,5 @@ def index():
     return "Бот работает!"
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8443))
+    port = int(os.environ.get("PORT", 8443))  # Используем PORT от Render
     app.run(host='0.0.0.0', port=port)
