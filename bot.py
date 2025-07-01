@@ -43,9 +43,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f'Код {user_input} — это {region_name}')
         return
 
-    # Поиск по названию
+    # Поиск по названию (исправлено: перебираем code, name)
     matches = []
-    for name, code in REGIONS.items():
+    for code, name in REGIONS.items():
         if user_input in normalize(name):
             matches.append(f'{name} ({code})')
 
