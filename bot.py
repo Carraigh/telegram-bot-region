@@ -48,7 +48,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     print("Бот готов к запуску.")
     print("Вставьте свой токен в строке ниже, как только будет доступ к BotFather.")
-    application = ApplicationBuilder().token("YOUR_TELEGRAM_BOT_TOKEN").build()
+    application = ApplicationBuilder().token("5740438152:AAG9mqmQfFVC7VPAmyPO1qxyRNZd6FAT50Q").build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
