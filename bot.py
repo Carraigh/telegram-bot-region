@@ -1,98 +1,89 @@
-import os
 import logging
-from dotenv import load_dotenv
-from quart import Quart, request, jsonify
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from regions import REGIONS  # Ваш словарь регионов
-import asyncio
+from dotenv import load_dotenv
+import os
 
-# Настройка логирования
+# === Загружаем переменные окружения из .env ===
+load_dotenv()
+
+# === ТОКЕН БОТА ===
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("Токен не найден! Убедитесь, что файл .env существует и содержит TELEGRAM_BOT_TOKEN")
+
+# === Импорт региональных данных из соседнего файла ===
+from regions import REGIONS
+
+# === Обратный словарь: код → название (для поиска по цифрам) ===
+CODE_TO_NAME = {code: name for code, name in REGIONS.items()}
+
+# === Функция нормализации названия ===
+def normalize_name(name):
+    prefixes = ["город", "область", "республика", "край", "автономная", "автономный"]
+    for prefix in prefixes:
+        name = name.replace(prefix, "")
+    return name.strip().lower()
+
+# === Словарь: нормализованное название → код (для поиска по тексту) ===
+NAME_TO_CODE = {}
+for code, name in REGIONS.items():
+    normalized = normalize_name(name)
+    NAME_TO_CODE[normalized] = code
+    short_name = normalized.split(',')[0].split(' ')[0]
+    if short_name != normalized:
+        NAME_TO_CODE[short_name] = code
+
+# === Настройка логирования ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
-load_dotenv()
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-if not TOKEN:
-    logger.error("TELEGRAM_BOT_TOKEN не найден в .env файле!")
-    raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
-
-# Нормализация текста
-def normalize(text: str) -> str:
-    return text.lower().strip()
-
-# Создаем приложение Telegram
-application = ApplicationBuilder().token(TOKEN).build()
-
-# Обработчики команд
+# === Команда /start ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Введите часть названия региона или код для поиска.")
+    await update.message.reply_text(
+        "Привет! Введите часть названия региона или код (например, 77 или мос) для поиска."
+    )
 
+# === Обработка сообщений ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = normalize(update.message.text)
+    user_input = normalize_name(update.message.text.strip())
 
-    if user_input in REGIONS:
-        await update.message.reply_text(f"Код {user_input} — это {REGIONS[user_input]}")
+    # 1. Если это цифровой код региона
+    if user_input.isdigit():
+        if user_input in CODE_TO_NAME:
+            await update.message.reply_text(f"Код {user_input} — это {CODE_TO_NAME[user_input]}")
+        else:
+            await update.message.reply_text("Регион с таким кодом не найден.")
         return
 
+    # 2. Поиск по названию региона (с нормализацией)
     matches = []
-    for code, name in REGIONS.items():
-        if user_input in normalize(name):
-            matches.append(f"{name} ({code})")
+    for name_normalized, code in NAME_TO_CODE.items():
+        if user_input in name_normalized:
+            region_full_name = REGIONS[code]
+            matches.append(f"{region_full_name} ({code})")
 
     if not matches:
         await update.message.reply_text("Совпадений не найдено.")
     elif len(matches) == 1:
         await update.message.reply_text(matches[0])
     else:
-        reply = "\n".join(matches[:5])
+        result = "\n".join(matches[:5])
         if len(matches) > 5:
-            reply += "\n... и другие"
-        await update.message.reply_text(reply)
+            result += "\n... и другие"
+        await update.message.reply_text(result)
 
-# Регистрация обработчиков
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+# === Запуск бота ===
+def main():
+    print("Бот запускается...")
+    application = ApplicationBuilder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("Бот запущен. Ожидание сообщений...")
+    application.run_polling()
 
-# Создаем Quart приложение
-app = Quart(__name__)
-
-# Инициализация приложения Telegram перед запуском сервера
-@app.before_serving
-async def startup():
-    logger.info("Инициализация Telegram Application...")
-    await application.initialize()
-    logger.info("Telegram Application инициализировано.")
-
-@app.route('/', methods=['POST'])
-async def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        try:
-            json_data = await request.get_json()
-            update = Update.de_json(json_data, application.bot)
-            await application.update_queue.put(update)
-            return jsonify({'status': 'ok'})
-        except Exception as e:
-            logger.error(f"Ошибка обработки обновления: {e}")
-            return jsonify({'status': 'error', 'message': str(e)}), 500
-    else:
-        return 'Invalid content type', 403
-
-@app.route('/', methods=['GET'])
-async def index():
-    return "Telegram Bot is running!"
-
-# Запуск через Hypercorn
 if __name__ == '__main__':
-    import hypercorn.asyncio
-    from hypercorn.config import Config
-
-    config = Config()
-    config.bind = ["0.0.0.0:8000"]
-
-    logger.info("Запуск сервера Hypercorn...")
-    asyncio.run(hypercorn.asyncio.serve(app, config))
+    main()
